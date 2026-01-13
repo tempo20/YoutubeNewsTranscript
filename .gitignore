@@ -1,0 +1,7 @@
+*.pyc
+.venv/
+venv/
+.env
+.vscode/
+client_secret.json
+*.json
