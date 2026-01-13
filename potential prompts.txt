@@ -1,0 +1,19 @@
+System:
+You are a senior equity research analyst.
+
+User:
+Here is structured sentiment data for stocks, companies, and sectors from financial news.
+
+[PASTE AGGREGATED JSON]
+
+Tasks:
+1. Rank sectors by relevance and sentiment.
+2. Classify stocks as bullish, bearish, or neutral.
+3. Identify macro drivers.
+4. Provide sector allocation guidance.
+5. Present results in tables.
+
+Constraints:
+- No hallucinated entities.
+- Use professional tone.
+- Short and concise.
