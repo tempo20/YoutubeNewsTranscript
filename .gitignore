@@ -5,3 +5,5 @@ venv/
 .vscode/
 client_secret.json
 *.json
+*.txt
+*.csv
