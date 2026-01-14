@@ -1,23 +1,24 @@
 from pathlib import Path
-from youtube_transcript_api import YouTubeTranscriptApi
-# import io
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 from dotenv import load_dotenv
 import os
 from youtube_transcript_api.proxies import WebshareProxyConfig
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 import json
 import time
 import random
-from pathlib import Path
-load_dotenv()
+
+# Load .env from project root (works regardless of working directory)
+_project_root = Path(__file__).parent
+_env_path = _project_root / '.env'
+load_dotenv(dotenv_path=_env_path)
 
 TRANSCRIPT_CACHE_PATH = Path('daily_transcripts.json')
 MAX_CACHE_SIZE = 100  # Maximum number of videos to keep in cache
 
 ytt_api = YouTubeTranscriptApi(
     proxy_config=WebshareProxyConfig(
-        proxy_username = os.getenv("PROXY_USER"),
-        proxy_password = os.getenv("PROXY_PASS"),
+        proxy_username=os.getenv("PROXY_USER"),
+        proxy_password=os.getenv("PROXY_PASS"),
     )
 )
 
@@ -45,10 +46,11 @@ def save_transcript_cache(path, cache):
 def fetch_transcript_with_backoff(video_id, max_retries=5):
     delay = 2.0 
     consecutive_bans = 0
-    max_consecutive_bans = 10  # If 10 IPs in a row are banned, all are likely banned
+    max_consecutive_bans = 10
     
     for attempt in range(1, max_retries + 1):
         try:
+            # Get API instance (created on first use, when env vars are definitely loaded)
             transcript = ytt_api.fetch(video_id)
             return ' '.join([seg.text for seg in transcript])
         except (TranscriptsDisabled, NoTranscriptFound):
@@ -68,7 +70,7 @@ def fetch_transcript_with_backoff(video_id, max_retries=5):
                 wait_time = 3 + random.random() * 2
                 print(f"   Waiting {wait_time:.1f}s for IP rotation, then retrying...")
                 time.sleep(wait_time)
-                continue  # Retry with next IP from rotation
+                continue
             
             print(f"Attempt {attempt} failed for {video_id}: {type(e).__name__}: {str(e)[:100]}")
             if attempt == max_retries:

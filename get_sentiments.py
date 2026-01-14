@@ -152,7 +152,11 @@ def analyze_video_sentiment(video, debug=False):
     transcript_text = video.get('transcript_text', '')
     
     if debug:
-        print(f"   Transcript length: {len(transcript_text)} chars, {len(transcript_text.split())} words")
+        safe_text = transcript_text or ""
+        print(
+            f"   Transcript length: {len(safe_text)} chars, "
+            f"{len(safe_text.split())} words"
+        )
     
     # Check if transcript exists and is long enough
     if not transcript_text or len(transcript_text.strip()) < 200:
@@ -217,10 +221,11 @@ def analyze_video_sentiment(video, debug=False):
 # Test on first video with debug output
 def get_all_sentiments(
     videos,
-    debug_first=True,
-    cache_path=SENTIMENT_CACHE_PATH,
-    max_cache_size=MAX_SENTIMENT_CACHE_SIZE,
-    save_cache=True,
+    debug_first: bool = True,
+    cache_path: Path | None = SENTIMENT_CACHE_PATH,
+    max_cache_size: int | None = MAX_SENTIMENT_CACHE_SIZE,
+    save_cache: bool = True,
+    titles_only: bool = False,
 ):
     if debug_first and videos:
         print("\nTesting first video with debug output:\n")
@@ -239,19 +244,34 @@ def get_all_sentiments(
     print("\nAnalyzing all videos...")
     for video in tqdm(videos, desc="Processing videos", unit="video"):
         vid = video.get("video_id")
+
+        # Use cache when available
         if cache and vid in cache:
             cached = cache[vid] or {}
             video["title_sentiment"] = cached.get("title_sentiment")
-            video["transcript_summary"] = cached.get("transcript_summary")
-            video["transcript_sentiment"] = cached.get("transcript_sentiment")
+            # Only fill transcript fields when we're not in titles-only mode
+            if not titles_only:
+                video["transcript_summary"] = cached.get("transcript_summary")
+                video["transcript_sentiment"] = cached.get("transcript_sentiment")
+            else:
+                video["transcript_summary"] = None
+                video["transcript_sentiment"] = None
             continue
 
-        if video.get('transcript_text'):
+        # Compute fresh sentiments
+        if titles_only:
+            # Only care about title; clear transcript fields explicitly
             analyze_video_sentiment(video, debug=False)
+            video["transcript_summary"] = None
+            video["transcript_sentiment"] = None
         else:
-            video['title_sentiment'] = None
-            video['transcript_summary'] = None
-            video['transcript_sentiment'] = None
+            if video.get("transcript_text"):
+                analyze_video_sentiment(video, debug=False)
+            else:
+                video["title_sentiment"] = None
+                video["transcript_summary"] = None
+                video["transcript_sentiment"] = None
+
         if cache_path:
             update_sentiment_cache(cache, video)
 

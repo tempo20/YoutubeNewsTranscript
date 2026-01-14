@@ -22,11 +22,18 @@ except OSError:
 CONTEXT_SENTENCES = 1
 TICKER_LIST_PATH = Path("tickers.csv")  # optional: columns ticker,name
 
-TICKER_RE = re.compile(r"(?<![A-Z])\$?[A-Z]{2,5}(?![A-Z])")
+# Match standalone ticker-like tokens (2–5 uppercase letters, optional leading $),
+# avoiding being part of a longer all-caps word or alphanumeric string.
+TICKER_RE = re.compile(r"(?<![A-Z0-9])\$?[A-Z]{2,5}(?![A-Z0-9])")
 TICKER_STOP = {
     "A", "AN", "AND", "ARE", "AS", "AT", "BE", "BUT", "BY", "CAN", "CO", "FOR",
     "FROM", "HAS", "HAVE", "IN", "IS", "IT", "ITS", "NOT", "OF", "ON", "OR",
     "THE", "TO", "WAS", "WERE", "WILL", "WITH",
+}
+
+# Extra tickers we may care about even if not present in tickers.csv
+EXTRA_TICKERS = {
+    "SPX", "SPY", "QQQ", "DIA", "IWM",  # major indices / ETFs
 }
 
 ENTITY_ALIASES = {
@@ -36,10 +43,29 @@ ENTITY_ALIASES = {
 
     "google": "GOOGL",
     "alphabet": "GOOGL",
+    "alphabet inc": "GOOGL",
+    "google llc": "GOOGL",
 
     "apple": "AAPL",
+    "apple inc": "AAPL",
+
     "amazon": "AMZN",
+    "amazon.com": "AMZN",
+
     "microsoft": "MSFT",
+    "microsoft corp": "MSFT",
+
+    "tesla": "TSLA",
+    "tesla motors": "TSLA",
+
+    "netflix": "NFLX",
+
+    "jpmorgan": "JPM",
+    "jp morgan": "JPM",
+    "jpmorgan chase": "JPM",
+
+    "bank of america": "BAC",
+    "bofa": "BAC",
 
     # institutions
     "fed": "Federal Reserve",
@@ -51,27 +77,89 @@ ENTITY_ALIASES = {
 }
 
 SECTOR_KEYWORDS = {
-    "Technology": ["tech", "software", "technology", "cloud", "ai", "artificial intelligence",
-                   "chip", "semiconductor", "digital", "platform", "app", "data", "cyber"],
-    "Finance": ["bank", "financial", "finance", "investment", "trading", "market",
-                "stock", "equity", "bond", "credit", "lending", "mortgage"],
-    "Healthcare": ["health", "medical", "pharmaceutical", "drug", "biotech", "hospital",
-                    "treatment", "patient", "fda", "clinical", "therapy"],
-    "Energy": ["oil", "gas", "energy", "petroleum", "renewable", "solar", "wind",
-               "electric", "power", "fuel", "drilling", "crude"],
-    "Retail": ["retail", "store", "shopping", "consumer", "e-commerce", "online shopping",
-               "merchandise", "sales", "retailer"],
-    "Automotive": ["car", "automotive", "vehicle", "auto", "truck", "electric vehicle",
-                   "ev", "manufacturing", "tesla"],
-    "Real Estate": ["real estate", "property", "housing", "construction", "mortgage",
-                    "development", "reit"],
-    "Telecommunications": ["telecom", "communication", "wireless", "5g", "network", "internet"],
-    "Aerospace": ["aerospace", "aircraft", "defense", "boeing", "space"],
-    "Consumer Goods": ["consumer goods", "packaged goods", "cpg"],
+    "Technology": [
+        "tech", "software", "technology", "cloud", "ai", "artificial intelligence",
+        "chip", "semiconductor", "digital", "platform", "app", "data", "cyber",
+        "saas", "hardware", "server", "datacenter",
+    ],
+    "Finance": [
+        "bank", "financial", "finance", "investment", "trading", "market",
+        "stock", "equity", "bond", "credit", "lending", "mortgage",
+        "treasury", "yield", "rates", "interest rate", "brokerage",
+    ],
+    "Healthcare": [
+        "health", "medical", "pharmaceutical", "drug", "biotech", "hospital",
+        "treatment", "patient", "fda", "clinical", "therapy", "vaccine", "pharma",
+    ],
+    "Energy": [
+        "oil", "gas", "energy", "petroleum", "renewable", "solar", "wind",
+        "electric", "power", "fuel", "drilling", "crude", "utility", "utilities",
+    ],
+    "Retail": [
+        "retail", "store", "shopping", "consumer", "e-commerce", "online shopping",
+        "merchandise", "sales", "retailer",
+    ],
+    "Automotive": [
+        "car", "automotive", "vehicle", "auto", "truck", "electric vehicle",
+        "ev", "manufacturing", "tesla",
+    ],
+    "Real Estate": [
+        "real estate", "property", "housing", "construction", "mortgage",
+        "development", "reit",
+    ],
+    "Telecommunications": [
+        "telecom", "communication", "wireless", "5g", "network", "internet",
+        "broadband",
+    ],
+    "Aerospace": [
+        "aerospace", "aircraft", "defense", "boeing", "space", "missile",
+    ],
+    "Consumer Goods": [
+        "consumer goods", "packaged goods", "cpg", "beverage", "food",
+    ],
 }
 
+
+def debug_video_entities(video) -> None:
+    """
+    Helper for manual debugging: prints how a single video is parsed into
+    tickers, companies, sectors, and scores.
+    Not used in the main pipeline; call from a notebook when tuning rules.
+    """
+    parts = analyze_video_entities_split(video)
+    print(f"Title      : {video.get('title', '')}")
+    print(f"Title sent.: {video.get('title_sentiment')}")
+    print(f"Summary    : {video.get('transcript_summary', '')[:200]}...")
+    print(f"Summary sent.: {video.get('transcript_sentiment')}")
+    print()
+    for part_name, (tickers, companies, sectors, score) in parts.items():
+        print(f"[{part_name.upper()}] score={score}")
+        print("  Tickers :", sorted(tickers))
+        print("  Companies:", sorted(companies))
+        print("  Sectors :", sorted(sectors))
+        print()
+
 def normalize_company_name(name):
-    return name.lower().replace("inc.", "").replace("corp.", "").replace("corporation", "").strip()
+    """
+    Normalize company names for mapping:
+    - lowercase
+    - strip common legal suffixes
+    - remove punctuation
+    """
+    n = (name or "").lower()
+
+    # Strip common suffixes
+    suffixes = [
+        " inc.", " inc", " corporation", " corp.", " corp", " co.", " co",
+        " ltd.", " ltd", " plc", " llc", " holdings", " holding",
+    ]
+    for suf in suffixes:
+        if n.endswith(suf):
+            n = n[: -len(suf)]
+            break
+
+    n = re.sub(r"[^\w\s]", "", n)
+    return n.strip()
 
 def extract_article_text(url: str) -> str | None:
     downloaded = trafilatura.fetch_url(url)
@@ -126,11 +214,12 @@ def fetch_articles(feed_url, max_items=30):
 
 def get_tickers(text):
     tickers = set()
-    for m in TICKER_RE.findall(text):
+    for m in TICKER_RE.findall(text or ""):
         t = m.replace("$", "").upper()
         if t in TICKER_STOP:
             continue
-        if ticker_to_name and t not in ticker_to_name:
+        # If we have an explicit ticker list, require membership or allow a small extra set
+        if ticker_to_name and t not in ticker_to_name and t not in EXTRA_TICKERS:
             continue
         tickers.add(t)
 

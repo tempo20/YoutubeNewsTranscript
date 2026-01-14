@@ -1,5 +1,12 @@
-
+from pathlib import Path
 from dotenv import load_dotenv
+import os
+
+# Load .env from project root (works regardless of working directory)
+_project_root = Path(__file__).parent
+_env_path = _project_root / '.env'
+load_dotenv(dotenv_path=_env_path)
+
 from retrieve_vids import fetch_youtube_videos_with_api, save_to_json
 from retrieve_transcripts import attach_transcripts, refresh_transcripts_in_dict
 from get_sentiments import get_all_sentiments
@@ -49,12 +56,11 @@ def print_top_mentions(result, top_n=3):
         print(f"  {e['name']} – {total} mentions")
 
 def main():
-    load_dotenv()
     videos = fetch_youtube_videos_with_api()
-    videos = attach_transcripts(videos)
-    videos = refresh_transcripts_in_dict(videos)
-    save_to_json(videos, "no_sentiment_vids.json")
-    videos = get_all_sentiments(videos)
+    # videos = attach_transcripts(videos)
+    # videos = refresh_transcripts_in_dict(videos)
+    # save_to_json(videos, "no_sentiment_vids.json")
+    videos = get_all_sentiments(videos, titles_only=True)
     save_to_json(videos, "youtube_analysis.json")
     result = aggregate_youtube_entities(videos)
     save_to_json(result, "entity_mentions.json")
