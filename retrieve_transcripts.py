@@ -15,13 +15,6 @@ load_dotenv(dotenv_path=_env_path)
 TRANSCRIPT_CACHE_PATH = Path('daily_transcripts.json')
 MAX_CACHE_SIZE = 100  # Maximum number of videos to keep in cache
 
-ytt_api = YouTubeTranscriptApi(
-    proxy_config=WebshareProxyConfig(
-        proxy_username=os.getenv("PROXY_USER"),
-        proxy_password=os.getenv("PROXY_PASS"),
-    )
-)
-
 def load_transcript_cache(path):
     if path.exists():
         try:
@@ -51,6 +44,13 @@ def fetch_transcript_with_backoff(video_id, max_retries=5):
     for attempt in range(1, max_retries + 1):
         try:
             # Get API instance (created on first use, when env vars are definitely loaded)
+
+            ytt_api = YouTubeTranscriptApi(
+                proxy_config=WebshareProxyConfig(
+                proxy_username=os.getenv("PROXY_USER"),
+                proxy_password=os.getenv("PROXY_PASS"),
+                )
+            )
             transcript = ytt_api.fetch(video_id)
             return ' '.join([seg.text for seg in transcript])
         except (TranscriptsDisabled, NoTranscriptFound):

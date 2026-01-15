@@ -8,7 +8,6 @@ load_dotenv()
 
 YOUTUBE_API_KEY = os.getenv("API_KEY")
 CHANNEL_ID = "UCrp_UI8XtuYfpiqluWLD7Lw"  # CNBC channel
-MAX_VIDEOS = 100
 
 def save_to_json(videos, filename):
     with open(filename, "w", encoding="utf-8") as f:

@@ -36,6 +36,9 @@ EXTRA_TICKERS = {
     "SPX", "SPY", "QQQ", "DIA", "IWM",  # major indices / ETFs
 }
 
+# Simple heuristic to detect ticker-like tokens (used when ORG names are actually tickers)
+TICKER_TOKEN_RE = re.compile(r"^[A-Z]{1,5}$")
+
 ENTITY_ALIASES = {
     # companies
     "meta": "META",
@@ -54,6 +57,9 @@ ENTITY_ALIASES = {
 
     "microsoft": "MSFT",
     "microsoft corp": "MSFT",
+
+    "chevron": "CVX",
+    "chevron corp": "CVX",
 
     "tesla": "TSLA",
     "tesla motors": "TSLA",
@@ -225,6 +231,22 @@ def get_tickers(text):
 
     return list(tickers)
 
+
+def is_ticker(name: str) -> bool:
+    """Return True if the string looks like a stock ticker (short all-caps token)."""
+    if not name:
+        return False
+    n = (name or "").upper()
+    return bool(TICKER_TOKEN_RE.fullmatch(n))
+
+def is_company_name(name: str) -> bool:
+    """Return True if the string looks like a company name (not a ticker)."""
+    if not name:
+        return False
+    # Company names are typically longer than tickers or contain spaces/words
+    # If it's not ticker-like, it's likely a company name
+    return not is_ticker(name) and name.upper() not in ticker_to_name
+
 def get_companies(doc):
     mapped = []
 
@@ -323,17 +345,47 @@ def aggregate_youtube_entities(videos):
 
         for part_name, (tickers, companies, sectors, score) in parts.items():
 
+            # Per-part de-duplication so the same logical stock/company
+            # isn't counted twice (e.g. both ticker and company name).
+            seen_stocks = set()
+            seen_companies = set()
+
             for t in tickers:
-                t = normalize_entity(t)
-                stock_stats[t][f"{part_name}_mentions"] += 1
+                # Tickers come in as symbols; normalize and treat as stocks.
+                sym = (t or "").upper()
+                if not is_ticker(sym):
+                    # Fallback: let normalize_entity handle unexpected forms
+                    sym = normalize_entity(t)
+                if sym in seen_stocks:
+                    continue
+                seen_stocks.add(sym)
+                stock_stats[sym][f"{part_name}_mentions"] += 1
                 if score is not None:
-                    stock_stats[t][f"{part_name}_scores"].append(score)
+                    stock_stats[sym][f"{part_name}_scores"].append(score)
 
             for c in companies:
                 c = normalize_entity(c)
-                company_stats[c][f"{part_name}_mentions"] += 1
-                if score is not None:
-                    company_stats[c][f"{part_name}_scores"].append(score)
+
+                # Check company first, then stock:
+                # 1) If it's a company name (not ticker-like), treat as company.
+                # 2) If it's NOT a company name (i.e., it's ticker-like), treat as stock.
+                if is_company_name(c):
+                    # It's a company name
+                    if c in seen_companies:
+                        continue
+                    seen_companies.add(c)
+                    company_stats[c][f"{part_name}_mentions"] += 1
+                    if score is not None:
+                        company_stats[c][f"{part_name}_scores"].append(score)
+                else:
+                    # It's ticker-like, treat as stock
+                    sym = c.upper()
+                    if sym in seen_stocks:
+                        continue
+                    seen_stocks.add(sym)
+                    stock_stats[sym][f"{part_name}_mentions"] += 1
+                    if score is not None:
+                        stock_stats[sym][f"{part_name}_scores"].append(score)
 
             for s in sectors:
                 s = normalize_entity(s)
@@ -341,11 +393,17 @@ def aggregate_youtube_entities(videos):
                 if score is not None:
                     sector_stats[s][f"{part_name}_scores"].append(score)
 
-    def finalize(stats):
+    def finalize(stats, *, treat_as_stocks: bool = False):
         rows = []
         for name, data in stats.items():
+            display_name = name
+            if treat_as_stocks:
+                # For stocks, display all-lower/TitleCase tickers as uppercase (e.g. cvx -> CVX)
+                # Heuristic: short alphabetic token that could be a ticker.
+                if re.fullmatch(r"[A-Za-z]{1,5}", name or ""):
+                    display_name = name.upper()
             rows.append({
-                "name": name,
+                "name": display_name,
 
                 "title_mentions": data["title_mentions"],
                 "avg_title_sentiment": (
@@ -364,7 +422,7 @@ def aggregate_youtube_entities(videos):
         return rows
 
     return {
-        "stocks": finalize(stock_stats),
+        "stocks": finalize(stock_stats, treat_as_stocks=True),
         "companies": finalize(company_stats),
         "sectors": finalize(sector_stats),
     }
