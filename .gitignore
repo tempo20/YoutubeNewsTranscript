@@ -1,6 +1,7 @@
 *.pyc
 .venv/
 venv/
+venv311/
 .env
 .vscode/
 client_secret.json

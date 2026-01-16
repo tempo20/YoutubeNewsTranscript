@@ -116,7 +116,10 @@ def main():
     print(f"After filtering - Stocks: {len(filtered_result.get('stocks', []))}, Companies: {len(filtered_result.get('companies', []))}, Sectors: {len(filtered_result.get('sectors', []))}")
     
     # Save filtered result back to JSON
-    save_to_json(filtered_result, "entity_mentions.json")
+    if args.max_results == 100:
+        save_to_json(filtered_result, f"entity_mentions_{end_date_str}.json")
+    else: 
+        save_to_json(filtered_result, f"entity_mentions_{end_date_str}_weekly.json")
     convert_entity_mentions_to_text("entity_mentions.json", "entity_mentions.txt")
 
 if __name__ == "__main__":
