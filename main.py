@@ -58,9 +58,9 @@ def main():
     parser.add_argument('--skip-transcripts', action='store_true', 
                        help='Skip fetching transcripts (only use titles)')
     parser.add_argument('--skip-sentiment', action='store_true', 
-                       help='Skip generating sentiment')
+                       help='[Deprecated] No longer used - per-entity sentiment is always computed')
     parser.add_argument('--titles-only', action='store_true',
-                       help='Only analyze sentiment for titles (skip transcript summaries)')
+                       help='[Deprecated] No longer used - per-entity sentiment is always computed')
     parser.add_argument('--max-results', type=int, default=560,
                        help='Maximum number of videos to fetch (default: 560)')
     parser.add_argument('--end-date', type=str, default=None,
@@ -96,14 +96,10 @@ def main():
     if videos:
         print(f"Sample video title: {videos[0].get('title', 'N/A')[:100]}")
 
-    if not args.skip_sentiment:
-        if args.titles_only:
-            videos = get_all_sentiments(videos, titles_only=True)
-        else:
-            videos = get_all_sentiments(videos)
-        save_to_json(videos, "after_sentiment.json")
-    else:
-        save_to_json(videos, "after_sentiment.json")
+    # Note: Video-level sentiment analysis is no longer required.
+    # Per-entity sentiment analysis is done directly in aggregate_youtube_entities().
+    # The --skip-sentiment flag is kept for backward compatibility but has no effect.
+    save_to_json(videos, "after_sentiment.json")
     
     result = aggregate_youtube_entities(videos)
     print(f"Before filtering - Stocks: {len(result.get('stocks', []))}, Companies: {len(result.get('companies', []))}, Sectors: {len(result.get('sectors', []))}")
