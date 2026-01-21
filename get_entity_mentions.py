@@ -1,7 +1,7 @@
 import feedparser
 import trafilatura
 import spacy
-from collections import defaultdict
+from collections import Counter, defaultdict
 import re
 from pathlib import Path
 import csv
@@ -72,8 +72,11 @@ AMBIGUOUS_TICKERS = {
     "WELL",  # Welltower - but also "well" as adverb/interjection
 }
 
+# Ambiguous tickers that should ONLY be accepted when company name evidence exists
+STRICT_COMPANY_ONLY = {"SO", "NOW", "DAY", "TECH", "LOW", "WELL"}
+
 # Finance-related context words that indicate a ticker mention is likely genuine
-# If any of these appear within ±5 tokens of an ambiguous ticker, accept it
+# If any of these appear within +-5 tokens of an ambiguous ticker, accept it
 FINANCE_CONTEXT_WORDS = {
     # Trading/investing terms
     "stock", "stocks", "share", "shares", "equity", "equities",
@@ -143,6 +146,13 @@ ENTITY_ALIASES = {
     "supreme court": "Supreme Court",
     "cnn": "CNN",
 }
+
+# Tokens to ignore when building name-based aliases
+ALIAS_EXCLUDE_WORDS = {
+    "inc", "corp", "corporation", "company", "companies", "ltd", "llc",
+    "plc", "holdings", "holding", "group", "the", "and", "of", "class",
+}
+TOKEN_ALIAS_MIN_LEN = 5
 
 SECTOR_KEYWORDS = {
     "Technology": [
@@ -242,6 +252,22 @@ def normalize_company_name(name):
     n = re.sub(r"[^\w\s]", "", n)
     return n.strip()
 
+
+def extract_name_tokens(name: str) -> set[str]:
+    """
+    Extract significant tokens from a company name for aliasing.
+    - Lowercase
+    - Remove punctuation
+    - Exclude common suffixes/stopwords
+    - Keep tokens with length >= TOKEN_ALIAS_MIN_LEN
+    """
+    tokens = set()
+    for word in (name or "").lower().split():
+        clean = re.sub(r"[^\w]", "", word)
+        if len(clean) >= TOKEN_ALIAS_MIN_LEN and clean not in ALIAS_EXCLUDE_WORDS:
+            tokens.add(clean)
+    return tokens
+
 def extract_article_text(url: str) -> str | None:
     downloaded = trafilatura.fetch_url(url)
     if not downloaded:
@@ -280,6 +306,8 @@ def load_sp500_tickers(path: Path):
     valid_tickers = set()
     ticker_to_name = {}
     name_to_ticker = {}
+    token_counts = Counter()
+    rows = []
     
     if not path.exists():
         return valid_tickers, ticker_to_name, name_to_ticker
@@ -292,11 +320,21 @@ def load_sp500_tickers(path: Path):
             
             if not symbol:
                 continue
-            
-            valid_tickers.add(symbol)
-            if security:
-                ticker_to_name[symbol] = security
-                name_to_ticker[normalize_company_name(security)] = symbol
+            rows.append((symbol, security))
+            # Count tokens for uniqueness pass
+            for tok in extract_name_tokens(security):
+                token_counts[tok] += 1
+
+    for symbol, security in rows:
+        valid_tickers.add(symbol)
+        if security:
+            norm_name = normalize_company_name(security)
+            ticker_to_name[symbol] = security
+            name_to_ticker[norm_name] = symbol
+            # Add unique, significant tokens as aliases when unambiguous
+            for tok in extract_name_tokens(security):
+                if token_counts[tok] == 1 and tok not in name_to_ticker:
+                    name_to_ticker[tok] = symbol
 
     return valid_tickers, ticker_to_name, name_to_ticker
 
@@ -397,7 +435,7 @@ def get_company_name_tokens(ticker: str) -> set:
     return tokens
 
 
-def has_finance_context_nearby(text: str, match_start: int, match_end: int, window_tokens: int = 5) -> bool:
+def has_finance_context_nearby(text: str, match_start: int, match_end: int, window_tokens: int = 5, buffer_chars: int = 200) -> bool:
     """
     Check if any finance-related context words appear within ±window_tokens of the match position.
     
@@ -414,8 +452,7 @@ def has_finance_context_nearby(text: str, match_start: int, match_end: int, wind
         return False
     
     # Simple tokenization: split on non-alphanumeric characters
-    # Get text around the match with some buffer
-    buffer_chars = 200  # characters before/after to examine
+    # Get text around the match with some buffer (shorter buffer for stricter matching if desired)
     start_pos = max(0, match_start - buffer_chars)
     end_pos = min(len(text), match_end + buffer_chars)
     context_text = text[start_pos:end_pos].lower()
@@ -510,12 +547,14 @@ def is_valid_ticker_mention(text: str, match_start: int, match_end: int, ticker:
         return True
     
     # For ambiguous tickers, require evidence
+    # Some noisy ambiguous tickers must have company name evidence only
+    if ticker in STRICT_COMPANY_ONLY:
+        return has_company_name_evidence(text, ticker)
     
-    # Check 1: Finance context words nearby (within ±5 tokens)
-    if has_finance_context_nearby(text, match_start, match_end, window_tokens=5):
+    # Default ambiguous logic: finance context (narrower window) OR company evidence
+    if has_finance_context_nearby(text, match_start, match_end, window_tokens=3, buffer_chars=120):
         return True
     
-    # Check 2: Company name appears in text
     if has_company_name_evidence(text, ticker):
         return True
     
