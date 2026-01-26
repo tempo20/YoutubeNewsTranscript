@@ -67,6 +67,20 @@ def main():
                        help='End date for filtering (YYYY-MM-DD format). If not provided, uses today.')
     args = parser.parse_args()
     
+    # Determine output directory based on max-results
+    base_dir = Path("C:/Entity Mentions")
+    if args.max_results == 560:
+        output_dir = base_dir / "Weekly"
+    elif args.max_results == 100:
+        output_dir = base_dir / "Daily"
+    else:
+        # Default to Weekly for other values
+        output_dir = base_dir / "Weekly"
+    
+    # Create output directory if it doesn't exist
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Output directory: {output_dir}")
+    
     videos = fetch_youtube_videos_with_api(max_results=args.max_results)
     print(f"Fetched {len(videos)} videos from API")
     
@@ -88,9 +102,9 @@ def main():
     if not args.skip_transcripts:
         videos = attach_transcripts(videos)
         videos = refresh_transcripts_in_dict(videos)
-        save_to_json(videos, "before_aggregation.json")
+        save_to_json(videos, str(output_dir / "before_aggregation.json"))
     else:
-        save_to_json(videos, "before_aggregation.json")
+        save_to_json(videos, str(output_dir / "before_aggregation.json"))
     
     print(f"Videos after transcript processing: {len(videos)}")
     if videos:
@@ -99,13 +113,13 @@ def main():
     # Note: Video-level sentiment analysis is no longer required.
     # Per-entity sentiment analysis is done directly in aggregate_youtube_entities().
     # The --skip-sentiment flag is kept for backward compatibility but has no effect.
-    save_to_json(videos, "after_sentiment.json")
+    save_to_json(videos, str(output_dir / "after_sentiment.json"))
     
     result = aggregate_youtube_entities(videos)
     print(f"Before filtering - Stocks: {len(result.get('stocks', []))}, Companies: {len(result.get('companies', []))}, Sectors: {len(result.get('sectors', []))}")
     
     # Save unfiltered result first
-    save_to_json(result, "entity_mentions.json")
+    save_to_json(result, str(output_dir / "entity_mentions.json"))
     
     # Apply filter
     filtered_result = filter_result(result)
@@ -113,10 +127,15 @@ def main():
     
     # Save filtered result back to JSON
     if args.max_results == 100:
-        save_to_json(filtered_result, f"entity_mentions_{end_date_str}.json")
+        json_path = str(output_dir / f"entity_mentions_{end_date_str}.json")
+        txt_path = str(output_dir / f"entity_mentions_{end_date_str}.txt")
+        save_to_json(filtered_result, json_path)
+        convert_entity_mentions_to_text(json_path, txt_path)
     else: 
-        save_to_json(filtered_result, f"entity_mentions_{end_date_str}_weekly.json")
-    convert_entity_mentions_to_text("entity_mentions.json", "entity_mentions.txt")
+        json_path = str(output_dir / f"entity_mentions_{end_date_str}_weekly.json")
+        txt_path = str(output_dir / f"entity_mentions_{end_date_str}_weekly.txt")
+        save_to_json(filtered_result, json_path)
+        convert_entity_mentions_to_text(json_path, txt_path)
 
 if __name__ == "__main__":
     main()
